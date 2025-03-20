@@ -13,6 +13,7 @@
 #include "LinkDiagnosticInfo.h"
 #include "llvm-c/Linker.h"
 #include "llvm/ADT/SetVector.h"
+#include "llvm/Demangle/Demangle.h"
 #include "llvm/IR/Comdat.h"
 #include "llvm/IR/DiagnosticPrinter.h"
 #include "llvm/IR/GlobalValue.h"
@@ -20,6 +21,9 @@
 #include "llvm/IR/Module.h"
 #include "llvm/Linker/Linker.h"
 #include "llvm/Support/Error.h"
+#include <cstdio>
+#include <iostream>
+#include <llvm/Demangle/Demangle.h>
 using namespace llvm;
 
 namespace {
@@ -499,10 +503,52 @@ bool ModuleLinker::run() {
       if (const Comdat *SC = GV.getComdat())
         LazyComdatMembers[SC].push_back(&GV);
 
-  for (Function &SF : *SrcM)
+  printf("Entering Module renamer\n");
+  for (Function &SF : *SrcM) {
+    for (auto &DF : DstM) {
+
+      std::string DFName = DF.getName().str();
+      std::string SFName = SF.getName().str();
+
+      std::cerr << "ANDREW: DF: " << DFName << " || SF: " << SFName << '\n';
+
+      // Remove device stub (undo llvm 11 patch) https://reviews.llvm.org/D68578
+      //
+
+      std::string DemangledDF = llvm::demangle(DFName);
+      std::string DemangledSF = llvm::demangle(SFName);
+
+      // std::cerr << "ANDREW: SF Demangled: " << llvm::demangle(DemangledSF)
+      //           << '\n';
+      // std::cerr << "ANDREW: DF Demangled: " << llvm::demangle(DemangledDF)
+      //           << '\n';
+
+      std::string BaseStubSF;
+      if (size_t Position = DemangledSF.find("__device_stub__");
+          Position != std::string::npos) {
+        BaseStubSF = DemangledSF.erase(Position, 15);
+      }
+
+      std::string BaseDF = DemangledDF.substr(0, DemangledDF.find('('));
+      std::string BaseSF = BaseStubSF.substr(0, DemangledSF.find('('));
+
+      std::cerr << "ANDREW: BaseDF: " << BaseDF << " BaseSF: " << BaseSF
+                << '\n';
+
+      if (BaseDF == BaseSF && !DF.isDeclaration() && !SF.isDeclaration()) {
+
+        std::cerr << "ANDREW: Set NEW name on Host Side from: " << ;
+
+        SF.setName(SrcM->getName() + "_CudaFE_" + DF.getName());
+        std::cerr << "ANDREW: Marked HOST Kernel" << '\n';
+        break;
+      }
+    }
+
     if (SF.hasLinkOnceLinkage())
       if (const Comdat *SC = SF.getComdat())
         LazyComdatMembers[SC].push_back(&SF);
+  }
 
   for (GlobalAlias &GA : SrcM->aliases())
     if (GA.hasLinkOnceLinkage())
@@ -573,11 +619,12 @@ bool ModuleLinker::run() {
   // FIXME: Propagate Errors through to the caller instead of emitting
   // diagnostics.
   bool HasErrors = false;
-  if (Error E = Mover.move(std::move(SrcM), ValuesToLink.getArrayRef(),
-                           [this](GlobalValue &GV, IRMover::ValueAdder Add) {
-                             addLazyFor(GV, Add);
-                           },
-                           /* IsPerformingImport */ false)) {
+  if (Error E = Mover.move(
+          std::move(SrcM), ValuesToLink.getArrayRef(),
+          [this](GlobalValue &GV, IRMover::ValueAdder Add) {
+            addLazyFor(GV, Add);
+          },
+          /* IsPerformingImport */ false)) {
     handleAllErrors(std::move(E), [&](ErrorInfoBase &EIB) {
       DstM.getContext().diagnose(LinkDiagnosticInfo(DS_Error, EIB.message()));
       HasErrors = true;

@@ -6,7 +6,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "llvm/Linker/IRMover.h"
 #include "LinkDiagnosticInfo.h"
 #include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/SmallString.h"
@@ -18,6 +17,7 @@
 #include "llvm/IR/Intrinsics.h"
 #include "llvm/IR/PseudoProbe.h"
 #include "llvm/IR/TypeFinder.h"
+#include "llvm/Linker/IRMover.h"
 #include "llvm/Object/ModuleSymbolTable.h"
 #include "llvm/Support/Error.h"
 #include "llvm/Support/Path.h"
@@ -78,7 +78,7 @@ private:
 
   bool areTypesIsomorphic(Type *DstTy, Type *SrcTy);
 };
-}
+} // namespace
 
 void TypeMapTy::addTypeMapping(Type *DstTy, Type *SrcTy) {
   assert(SpeculativeTypes.empty());
@@ -399,7 +399,7 @@ class IRLinker {
 
   DenseSet<GlobalValue *> ValuesToLink;
   std::vector<GlobalValue *> Worklist;
-  std::vector<std::pair<GlobalValue *, Value*>> RAUWWorklist;
+  std::vector<std::pair<GlobalValue *, Value *>> RAUWWorklist;
 
   void maybeAdd(GlobalValue *GV) {
     if (ValuesToLink.insert(GV).second)
@@ -544,7 +544,7 @@ public:
   Error run();
   Value *materialize(Value *V, bool ForIndirectSymbol);
 };
-}
+} // namespace
 
 /// The LLVM SymbolTable class autorenames globals that conflict in the symbol
 /// table. This is good for all clients except for us. Go through the trouble
@@ -617,8 +617,8 @@ Value *IRLinker::materialize(Value *V, bool ForIndirectSymbol) {
   }
 
   // If the global is being linked for an indirect symbol, it may have already
-  // been scheduled to satisfy a regular symbol. Similarly, a global being linked
-  // for a regular symbol may have already been scheduled for an indirect
+  // been scheduled to satisfy a regular symbol. Similarly, a global being
+  // linked for a regular symbol may have already been scheduled for an indirect
   // symbol. Check for these cases by looking in the other value map and
   // confirming the same value has been scheduled.  If there is an entry in the
   // ValueMap but the value is different, it means that the value already had a
@@ -738,7 +738,8 @@ GlobalValue *IRLinker::copyGlobalValueProto(const GlobalValue *SGV,
     NewGV->setLinkage(GlobalValue::ExternalWeakLinkage);
 
   if (auto *NewGO = dyn_cast<GlobalObject>(NewGV)) {
-    // Metadata for global variables and function declarations is copied eagerly.
+    // Metadata for global variables and function declarations is copied
+    // eagerly.
     if (isa<GlobalVariable>(SGV) || SGV->isDeclaration())
       NewGO->copyMetadata(cast<GlobalObject>(SGV), 0);
   }
@@ -898,8 +899,8 @@ IRLinker::linkAppendingVarProto(GlobalVariable *DstGV,
   if (SrcGV->isDeclaration())
     return DstGV;
 
-  Type *EltTy = cast<ArrayType>(TypeMap.get(SrcGV->getValueType()))
-                    ->getElementType();
+  Type *EltTy =
+      cast<ArrayType>(TypeMap.get(SrcGV->getValueType()))->getElementType();
 
   // FIXME: This upgrade is done during linking to support the C API.  Once the
   // old form is deprecated, we should move this upgrade to
@@ -1069,7 +1070,7 @@ Expected<Constant *> IRLinker::linkGlobalValueProto(GlobalValue *SGV,
   // assumes it is being invoked on a type in the source module.
   if (DGV && NewGV != SGV) {
     C = ConstantExpr::getPointerBitCastOrAddrSpaceCast(
-      NewGV, TypeMap.get(SGV->getType()));
+        NewGV, TypeMap.get(SGV->getType()));
   }
 
   if (DGV && NewGV != DGV) {
@@ -1422,7 +1423,6 @@ Error IRLinker::linkModuleFlagsMetadata() {
       break;
     }
     }
-
   }
 
   // Check all of the requirements.
@@ -1511,7 +1511,13 @@ Error IRLinker::run() {
                 "'\n");
 
   DstM.setTargetTriple(SrcTriple.merge(DstTriple));
-
+  if (DstM.getModuleIdentifier() == "llvm-link-cudafe") {
+    emitWarning("CudaFE target!");
+    DstM.setTargetTriple("x86_64-unknown-linux-gnu");
+    // DstM.setDataLayout("e-m:e-i64:64-f80:128-n8:16:32:64-S128");
+    // Different data layout issue?
+    DstM.setDataLayout("e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16:32:64-S128");
+  }
   // Loop over all of the linked values to compute type mappings.
   computeTypeMapping();
 
@@ -1544,20 +1550,20 @@ Error IRLinker::run() {
 
   if (!IsPerformingImport && !SrcM->getModuleInlineAsm().empty()) {
     // Append the module inline asm string.
-    DstM.appendModuleInlineAsm(adjustInlineAsm(SrcM->getModuleInlineAsm(),
-                                               SrcTriple));
+    DstM.appendModuleInlineAsm(
+        adjustInlineAsm(SrcM->getModuleInlineAsm(), SrcTriple));
   } else if (IsPerformingImport) {
     // Import any symver directives for symbols in DstM.
     ModuleSymbolTable::CollectAsmSymvers(*SrcM,
                                          [&](StringRef Name, StringRef Alias) {
-      if (DstM.getNamedValue(Name)) {
-        SmallString<256> S(".symver ");
-        S += Name;
-        S += ", ";
-        S += Alias;
-        DstM.appendModuleInlineAsm(S);
-      }
-    });
+                                           if (DstM.getNamedValue(Name)) {
+                                             SmallString<256> S(".symver ");
+                                             S += Name;
+                                             S += ", ";
+                                             S += Alias;
+                                             DstM.appendModuleInlineAsm(S);
+                                           }
+                                         });
   }
 
   // Reorder the globals just added to the destination module to match their
