@@ -531,15 +531,14 @@ bool ModuleLinker::run() {
 
       std::string BaseDF = DemangledDF.substr(0, DemangledDF.find('('));
       std::string BaseSF = BaseStubSF.substr(0, DemangledSF.find('('));
-
       std::cerr << "ANDREW: BaseDF: " << BaseDF << " BaseSF: " << BaseSF
                 << '\n';
 
       if (BaseDF == BaseSF && !DF.isDeclaration() && !SF.isDeclaration()) {
 
-        std::cerr << "ANDREW: Set NEW name on Host Side from: " << ;
-
         SF.setName(SrcM->getName() + "_CudaFE_" + DF.getName());
+        std::cerr << "ANDREW: Set NEW name on Host Side from: " << SFName
+                  << "\nANDREW: TO: " << SF.getName().str();
         std::cerr << "ANDREW: Marked HOST Kernel" << '\n';
         break;
       }
